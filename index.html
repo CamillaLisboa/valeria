@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Controle de Atendimentos</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    try { if (sessionStorage.getItem('apai-auth') !== '1') document.documentElement.classList.add('locked'); }
+    catch (e) { document.documentElement.classList.add('locked'); }
+  </script>
+  <script src="auth.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!-- ================= LOGIN ================= -->
+  <section id="login" class="login">
+    <form id="form-login" class="login-card" autocomplete="on">
+      <span class="logo">✚</span>
+      <h1>Controle de Atendimentos</h1>
+      <p class="hint">Entre com seu CPF e senha.</p>
+      <label>CPF<input name="cpf" inputmode="numeric" autocomplete="username" placeholder="000.000.000-00" required></label>
+      <label>Senha<input name="senha" type="password" autocomplete="current-password" required></label>
+      <p class="login-erro" id="login-erro" hidden>CPF ou senha incorretos.</p>
+      <button class="btn primary" type="submit">Entrar</button>
+    </form>
+  </section>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">✚</span>
+      <div>
+        <h1>Controle de Atendimentos</h1>
+        <small>Triagem · Fila · Ativos · Desligados</small>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="pacientes">Pacientes</button>
+      <button class="nav-btn" data-view="cadastros">Cadastros</button>
+      <button class="nav-btn" data-view="relatorios">Relatórios</button>
+    </nav>
+    <button class="btn ghost sm" id="btn-sair">Sair</button>
+  </header>
+
+  <main>
+    <!-- ================= DASHBOARD ================= -->
+    <section id="view-dashboard" class="view">
+      <div class="dash-filters">
+        <label>Cidade de atendimento<select id="dash-cidade"></select></label>
+        <label>Convênio<select id="dash-conv"></select></label>
+        <label>Faixa etária
+          <select id="dash-faixa">
+            <option value="">Todas</option>
+            <option value="0-12">0 a 12 anos</option>
+            <option value="13+">Acima de 12 anos</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <h2>Por área de terapia</h2>
+          <div class="legend"><span class="dot ativo"></span>Em atendimento <span class="dot fila"></span>Na fila</div>
+          <div id="dash-areas" class="bars"></div>
+        </div>
+        <div class="card">
+          <h2>Por cidade de atendimento</h2>
+          <div class="legend"><span class="dot ativo"></span>Ativos <span class="dot fila"></span>Fila <span class="dot desligado"></span>Desligados</div>
+          <div id="dash-cidades" class="bars"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Atendimentos por profissional</h2>
+        <div class="table-wrap flat">
+          <table class="table small">
+            <thead><tr><th>Profissional</th><th>Área</th><th>Em atendimento</th><th>Na fila</th><th>Encerrados</th><th>Total</th><th style="width:30%">Carga</th></tr></thead>
+            <tbody id="dash-prof"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <h2>Por convênio</h2>
+          <div class="table-wrap flat">
+            <table class="table small">
+              <thead><tr><th>Convênio</th><th>Ativos</th><th>Fila</th><th>Desligados</th><th>Total</th></tr></thead>
+              <tbody id="dash-conv-tab"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Por faixa etária</h2>
+          <div class="table-wrap flat">
+            <table class="table small">
+              <thead><tr><th>Faixa</th><th>Ativos</th><th>Fila</th><th>Desligados</th><th>Total</th></tr></thead>
+              <tbody id="dash-faixa-tab"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <h2>Maior tempo de espera na fila</h2>
+          <div class="table-wrap flat">
+            <table class="table small">
+              <thead><tr><th>Paciente</th><th>Área</th><th>Cidade</th><th>Desde</th><th>Dias</th></tr></thead>
+              <tbody id="dash-espera"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Triagens e desligamentos (últimos 12 meses)</h2>
+          <div class="legend"><span class="dot primary"></span>Triagens <span class="dot desligado"></span>Desligamentos</div>
+          <div id="dash-meses" class="months"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= PACIENTES ================= -->
+    <section id="view-pacientes" class="view" hidden>
+      <div class="toolbar">
+        <div class="tabs" id="tabs-status">
+          <button class="tab active" data-status="todos">Todos <span id="ct-todos"></span></button>
+          <button class="tab" data-status="fila">Fila <span id="ct-fila"></span></button>
+          <button class="tab" data-status="ativo">Ativos <span id="ct-ativo"></span></button>
+          <button class="tab" data-status="desligado">Desligados <span id="ct-desligado"></span></button>
+        </div>
+        <button class="btn primary" id="btn-novo">+ Nova triagem</button>
+      </div>
+      <div class="filters">
+        <input type="search" id="busca" placeholder="Buscar paciente, responsável, contato ou CID">
+        <select id="filtro-cidade"></select>
+        <select id="filtro-conv"></select>
+        <select id="filtro-area"></select>
+        <select id="filtro-prof"></select>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Paciente / Responsável</th>
+              <th>Idade / CID</th>
+              <th>Cidade / Convênio</th>
+              <th>Contato</th>
+              <th>Triagem</th>
+              <th>Terapias</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="lista"></tbody>
+        </table>
+        <p class="empty" id="vazio" hidden>Nenhum paciente encontrado.</p>
+      </div>
+
+      <div class="backup">
+        <button class="btn ghost" id="btn-backup">Baixar backup (JSON)</button>
+        <label class="btn ghost">Restaurar backup<input type="file" id="input-restore" accept=".json" hidden></label>
+        <small>Os dados ficam salvos neste navegador. Faça backup regularmente.</small>
+      </div>
+    </section>
+
+    <!-- ================= CADASTROS ================= -->
+    <section id="view-cadastros" class="view" hidden>
+      <!-- Profissionais -->
+      <div class="card">
+        <h2 id="prof-titulo">Profissionais</h2>
+        <form id="form-prof" class="grid">
+          <input type="hidden" name="id">
+          <label>Nome*<input name="nome" required></label>
+          <label>Área*<select name="area" required class="sel-area-req"></select></label>
+          <label>Registro (CRP, CREFITO…)<input name="registro"></label>
+          <label>Contato<input name="contato"></label>
+          <div class="form-actions span-all">
+            <button type="button" class="btn ghost cancelar" hidden>Cancelar edição</button>
+            <button class="btn primary" type="submit">Salvar profissional</button>
+          </div>
+        </form>
+        <div class="table-wrap flat">
+          <table class="table small">
+            <thead><tr><th>Nome</th><th>Área</th><th>Registro</th><th>Contato</th><th>Em atendimento</th><th>Na fila</th><th></th></tr></thead>
+            <tbody id="lista-prof"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Coordenadores -->
+      <div class="card">
+        <h2>Coordenadores por cidade</h2>
+        <form id="form-coord" class="grid">
+          <input type="hidden" name="id">
+          <label>Nome*<input name="nome" required></label>
+          <label>Cidade*<select name="cidade" required class="sel-cidade-req"></select></label>
+          <label>Contato<input name="contato"></label>
+          <div class="form-actions span-all">
+            <button type="button" class="btn ghost cancelar" hidden>Cancelar edição</button>
+            <button class="btn primary" type="submit">Salvar coordenador</button>
+          </div>
+        </form>
+        <div class="table-wrap flat">
+          <table class="table small">
+            <thead><tr><th>Nome</th><th>Cidade</th><th>Contato</th><th>Pacientes</th><th></th></tr></thead>
+            <tbody id="lista-coord"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Convênios -->
+      <div class="card">
+        <h2>Convênios</h2>
+        <p class="hint">O convênio depende da cidade e da idade (0 a 12 anos / acima de 12). No cadastro do paciente o sistema sugere o convênio certo.</p>
+        <form id="form-conv" class="grid">
+          <input type="hidden" name="id">
+          <label>Nome do convênio*<input name="nome" required></label>
+          <label>Cidade
+            <select name="cidade" class="sel-cidade-todas"></select>
+          </label>
+          <label>Faixa etária
+            <select name="faixa">
+              <option value="">Todas as idades</option>
+              <option value="0-12">0 a 12 anos</option>
+              <option value="13+">Acima de 12 anos</option>
+            </select>
+          </label>
+          <div class="form-actions span-all">
+            <button type="button" class="btn ghost cancelar" hidden>Cancelar edição</button>
+            <button class="btn primary" type="submit">Salvar convênio</button>
+          </div>
+        </form>
+        <div class="table-wrap flat">
+          <table class="table small">
+            <thead><tr><th>Convênio</th><th>Cidade</th><th>Faixa etária</th><th>Pacientes</th><th></th></tr></thead>
+            <tbody id="lista-conv"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RELATÓRIOS ================= -->
+    <section id="view-relatorios" class="view" hidden>
+      <div class="card">
+        <h2>Filtros do relatório</h2>
+        <form id="form-rel" class="grid">
+          <label>Status geral
+            <select name="status">
+              <option value="">Todos</option>
+              <option value="fila">Fila</option>
+              <option value="ativo">Ativo</option>
+              <option value="desligado">Desligado</option>
+            </select>
+          </label>
+          <label>Cidade de atendimento<select name="cidade" class="sel-cidade-filtro"></select></label>
+          <label>Cidade onde mora<select name="cidadeMora" class="sel-cidade-filtro"></select></label>
+          <label>Convênio<select name="conv" class="sel-conv-filtro"></select></label>
+          <label>Coordenador<select name="coord" class="sel-coord-filtro"></select></label>
+          <label>Faixa etária
+            <select name="faixa">
+              <option value="">Todas</option>
+              <option value="0-12">0 a 12 anos</option>
+              <option value="13+">Acima de 12 anos</option>
+            </select>
+          </label>
+          <label>Área<select name="area" class="sel-area-filtro"></select></label>
+          <label>Profissional<select name="prof" class="sel-prof-filtro"></select></label>
+          <label>Situação na terapia
+            <select name="tstatus">
+              <option value="">Todas</option>
+              <option value="fila">Aguardando</option>
+              <option value="atendimento">Em atendimento</option>
+              <option value="encerrada">Encerrada</option>
+            </select>
+          </label>
+          <label>Período por
+            <select name="campo">
+              <option value="dataTriagem">Data da triagem</option>
+              <option value="dataFila">Entrada na fila da terapia</option>
+              <option value="dataInicio">Início da terapia</option>
+              <option value="dataFim">Fim da terapia</option>
+              <option value="dataDesligamento">Data de desligamento</option>
+            </select>
+          </label>
+          <label>De<input type="date" name="de"></label>
+          <label>Até<input type="date" name="ate"></label>
+          <label class="span-2">Busca<input type="search" name="busca" placeholder="Nome, responsável, CID…"></label>
+          <div class="form-actions span-all">
+            <button type="reset" class="btn ghost">Limpar filtros</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="rel-head">
+        <p><strong id="rel-count">0</strong> registro(s) · <span id="rel-pac">0</span> paciente(s)</p>
+        <div class="export">
+          <span class="hint">Baixar:</span>
+          <button class="btn" data-exp="pdf">PDF</button>
+          <button class="btn" data-exp="doc">DOC</button>
+          <button class="btn" data-exp="xlsx">Excel</button>
+          <button class="btn" data-exp="csv">CSV</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table small">
+          <thead id="rel-thead"></thead>
+          <tbody id="rel-body"></tbody>
+        </table>
+        <p class="empty" id="rel-vazio" hidden>Nenhum registro para os filtros escolhidos.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= MODAL PACIENTE ================= -->
+  <dialog id="modal">
+    <form id="form-pac" method="dialog">
+      <header class="modal-head">
+        <h2 id="modal-titulo">Nova triagem</h2>
+        <button type="button" class="x" data-close aria-label="Fechar">×</button>
+      </header>
+
+      <div class="modal-body">
+        <input type="hidden" name="id">
+        <fieldset>
+          <legend>Paciente</legend>
+          <div class="grid">
+            <label>Nome do paciente/aluno*<input name="nome" required></label>
+            <label>Data de nascimento*<input type="date" name="dataNascimento" required></label>
+            <label>Idade<input name="idade" readonly tabindex="-1" placeholder="—"></label>
+            <div class="field span-2">
+              <span>CIDs <small id="cid-hint"></small></span>
+              <div class="tags" id="cid-box"><input id="cid-input" placeholder="Digite o CID e tecle Enter (ex.: F84.0)"></div>
+            </div>
+            <label>Nome do responsável<input name="responsavel"></label>
+            <label>Forma de contato
+              <select name="formaContato">
+                <option value="">—</option>
+                <option>WhatsApp</option>
+                <option>Telefone</option>
+                <option>E-mail</option>
+                <option>Presencial</option>
+              </select>
+            </label>
+            <label>Contato (número / e-mail)<input name="contato"></label>
+            <label>Data da triagem*<input type="date" name="dataTriagem" required></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Localidade e convênio</legend>
+          <div class="grid">
+            <label>Cidade onde mora<select name="cidadeMora" class="sel-cidade"></select></label>
+            <label>Cidade de atendimento*<select name="cidadeAtendimento" required class="sel-cidade-req"></select></label>
+            <label>Coordenador<select name="coordenadorId"></select></label>
+            <label>Convênio<select name="convenioId"></select></label>
+          </div>
+          <p class="hint" id="conv-hint"></p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Terapias</legend>
+          <div id="terapias"></div>
+          <button type="button" class="btn ghost" id="add-terapia">+ Adicionar terapia</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Desligamento</legend>
+          <div class="grid">
+            <label>Data do desligamento<input type="date" name="dataDesligamento"></label>
+            <label>Motivo<input name="motivoDesligamento"></label>
+          </div>
+        </fieldset>
+
+        <label class="block">Observações<textarea name="obs" rows="3"></textarea></label>
+      </div>
+
+      <footer class="modal-foot">
+        <button type="button" class="btn ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <template id="tpl-terapia">
+    <div class="terapia-row">
+      <label>Área<select data-f="area"></select></label>
+      <label>Profissional<select data-f="profissionalId"></select></label>
+      <label>Situação
+        <select data-f="status">
+          <option value="fila">Aguardando (fila)</option>
+          <option value="atendimento">Em atendimento</option>
+          <option value="encerrada">Encerrada</option>
+        </select>
+      </label>
+      <label>Entrada na fila<input type="date" data-f="dataFila"></label>
+      <label>Início<input type="date" data-f="dataInicio"></label>
+      <label>Fim<input type="date" data-f="dataFim"></label>
+      <button type="button" class="x remove" title="Remover terapia">×</button>
+    </div>
+  </template>
+</body>
+</html>
